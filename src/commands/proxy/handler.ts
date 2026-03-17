@@ -1,10 +1,40 @@
-import { ProxyHandler } from '../../services/proxy/handler.js';
-import type { StartProxyInput, ProxyResult } from '../../services/proxy/spec.js';
+import { StitchProxy } from '@google/stitch-sdk';
+import type { StitchProxy as StitchProxyType } from '@google/stitch-sdk';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+
+interface ProxyCommandInput {
+  port?: number;
+  debug?: boolean;
+}
+
+interface ProxyCommandResult {
+  success: boolean;
+  data?: { status: string };
+  error?: { code: string; message: string; recoverable: boolean };
+}
 
 export class ProxyCommandHandler {
-  constructor(private proxyService: ProxyHandler = new ProxyHandler()) { }
+  private createProxy: (opts: { apiKey?: string }) => StitchProxyType;
+  private createTransport: () => StdioServerTransport;
 
-  async execute(input: StartProxyInput): Promise<ProxyResult> {
-    return this.proxyService.start(input);
+  constructor(deps?: {
+    createProxy?: (opts: { apiKey?: string }) => StitchProxyType;
+    createTransport?: () => StdioServerTransport;
+  }) {
+    this.createProxy = deps?.createProxy ?? ((opts) => new StitchProxy(opts));
+    this.createTransport = deps?.createTransport ?? (() => new StdioServerTransport());
+  }
+
+  async execute(input: ProxyCommandInput): Promise<ProxyCommandResult> {
+    try {
+      const proxy = this.createProxy({
+        apiKey: process.env.STITCH_API_KEY,
+      });
+      const transport = this.createTransport();
+      await proxy.start(transport);
+      return { success: true, data: { status: 'stopped' } };
+    } catch (e: any) {
+      return { success: false, error: { code: 'PROXY_START_ERROR', message: e.message, recoverable: false } };
+    }
   }
 }

@@ -1,8 +1,7 @@
-import type { StitchMCPClient } from '../../../services/mcp-client/client.js';
-import { ProjectSyncer } from '../../site/utils/ProjectSyncer.js';
-import { SiteService } from '../../../lib/services/site/SiteService.js';
+import type { StitchToolClient, Stitch } from '@google/stitch-sdk';
 import type { VirtualTool } from '../spec.js';
 import pLimit from 'p-limit';
+import { fetchWithRetry } from '../../site/utils/fetchWithRetry.js';
 
 export const buildSiteTool: VirtualTool = {
   name: 'build_site',
@@ -35,7 +34,8 @@ export const buildSiteTool: VirtualTool = {
     },
     required: ['projectId', 'routes'],
   },
-  execute: async (client: StitchMCPClient, args: any) => {
+  execute: async (client: StitchToolClient, args: any, stitch?: Stitch) => {
+    if (!stitch) throw new Error('build_site requires a Stitch instance');
     const { projectId, routes } = args;
 
     // Validate routes
@@ -62,13 +62,10 @@ export const buildSiteTool: VirtualTool = {
       throw new Error(`Duplicate route paths found: ${[...new Set(duplicates)].join(', ')}`);
     }
 
-    // Fetch project screens
-    const syncer = new ProjectSyncer(client);
-    const remoteScreens = await syncer.fetchManifest(projectId);
-    const uiScreens = SiteService.toUIScreens(remoteScreens);
-
-    // Build lookup map
-    const screenMap = new Map(uiScreens.map(s => [s.id, s]));
+    // Fetch project screens via injected SDK instance
+    const project = stitch.project(projectId);
+    const sdkScreens = await project.screens();
+    const screenMap = new Map(sdkScreens.map((s: any) => [s.screenId, s]));
 
     // Validate all requested screenIds exist
     const missingIds = routes
@@ -88,8 +85,13 @@ export const buildSiteTool: VirtualTool = {
         limit(async () => {
           const screen = screenMap.get(r.screenId)!;
           try {
-            const html = await syncer.fetchContent(screen.downloadUrl);
-            htmlContent.set(r.screenId, html);
+            const htmlUrl = await screen.getHtml();
+            if (htmlUrl) {
+              const html = await fetchWithRetry(htmlUrl);
+              htmlContent.set(r.screenId, html);
+            } else {
+               htmlContent.set(r.screenId, '');
+            }
           } catch (e: any) {
             errors.push(`${r.screenId}: ${e.message}`);
           }
@@ -105,7 +107,7 @@ export const buildSiteTool: VirtualTool = {
     const pages = routes.map((r: any) => ({
       screenId: r.screenId,
       route: r.route,
-      title: screenMap.get(r.screenId)!.title,
+      title: screenMap.get(r.screenId)!.title ?? r.screenId,
       html: htmlContent.get(r.screenId)!,
     }));
 

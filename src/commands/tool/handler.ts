@@ -1,19 +1,9 @@
-import { StitchMCPClient } from '../../services/mcp-client/client.js';
+import { StitchToolClient, stitch as defaultStitch } from '@google/stitch-sdk';
+import type { Stitch } from '@google/stitch-sdk';
 import type { CommandStep } from '../../framework/CommandStep.js';
 import { runSteps } from '../../framework/StepRunner.js';
 import type { ToolCommandInput, ToolCommandResult, VirtualTool } from './spec.js';
 
-/**
- * Internal dependencies for testing
- */
-export const deps = {
-  runSteps,
-  ListToolsStep,
-  ShowSchemaStep,
-  ParseArgsStep,
-  ValidateToolStep,
-  ExecuteToolStep,
-};
 import type { ToolContext } from './context.js';
 import { virtualTools as defaultVirtualTools } from './virtual-tools/index.js';
 import { ListToolsStep } from './steps/ListToolsStep.js';
@@ -22,13 +12,24 @@ import { ParseArgsStep } from './steps/ParseArgsStep.js';
 import { ValidateToolStep } from './steps/ValidateToolStep.js';
 import { ExecuteToolStep } from './steps/ExecuteToolStep.js';
 
+export const deps = {
+  runSteps,
+  ListToolsStep,
+  ShowSchemaStep,
+  ParseArgsStep,
+  ValidateToolStep,
+  ExecuteToolStep,
+};
+
 export class ToolCommandHandler {
-  private client: StitchMCPClient;
+  private client: StitchToolClient;
+  private stitchInstance: Stitch;
   private tools: VirtualTool[];
   private steps: CommandStep<ToolContext>[];
 
-  constructor(client?: StitchMCPClient, tools?: VirtualTool[]) {
-    this.client = client || new StitchMCPClient();
+  constructor(client?: StitchToolClient, tools?: VirtualTool[], stitchInstance?: Stitch) {
+    this.client = client || new StitchToolClient();
+    this.stitchInstance = stitchInstance || defaultStitch;
     this.tools = tools || defaultVirtualTools;
     this.steps = [
       new deps.ListToolsStep(),
@@ -43,12 +44,17 @@ export class ToolCommandHandler {
     const context: ToolContext = {
       input,
       client: this.client,
+      stitch: this.stitchInstance,
       virtualTools: this.tools,
     };
 
-    await deps.runSteps(this.steps, context, {
-      onAfterStep: (_step, _result, ctx) => ctx.result !== undefined,
-    });
+    try {
+        await deps.runSteps(this.steps, context, {
+        onAfterStep: (_step, _result, ctx) => ctx.result !== undefined,
+        });
+    } finally {
+        await this.client.close();
+    }
 
     return context.result ?? { success: false, error: 'No step produced a result' };
   }
