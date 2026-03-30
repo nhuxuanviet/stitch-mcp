@@ -10,7 +10,6 @@ describe('ProxyCommandHandler (SDK)', () => {
 
   beforeEach(() => {
     originalEnv = { ...process.env };
-    // Provide a dummy API key so the constructor doesn't throw auth failed error.
     process.env.STITCH_API_KEY = 'dummy-key';
     startSpy = spyOn(StitchProxy.prototype, 'start').mockResolvedValue(undefined);
     // StdioServerTransport constructor — just ensure it's instantiated
@@ -47,6 +46,25 @@ describe('ProxyCommandHandler (SDK)', () => {
     const result = await handler.execute({});
     expect(result.success).toBe(true);
     expect(receivedApiKey).toBe('test-key');
+  });
+
+  it('passes OAuth auth fields to StitchProxy when API key is absent', async () => {
+    delete process.env.STITCH_API_KEY;
+    process.env.STITCH_ACCESS_TOKEN = 'oauth-token';
+    process.env.STITCH_PROJECT_ID = 'oauth-project';
+
+    let received: { apiKey?: string; accessToken?: string; projectId?: string } | undefined;
+
+    const handler = new ProxyCommandHandler({
+      createProxy: (opts) => {
+        received = opts;
+        return { start: async () => {}, close: async () => {} } as any;
+      },
+    });
+
+    const result = await handler.execute({});
+    expect(result.success).toBe(true);
+    expect(received).toEqual({ accessToken: 'oauth-token', projectId: 'oauth-project' });
   });
 
   it('returns error when proxy start fails', async () => {

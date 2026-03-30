@@ -1,5 +1,6 @@
 import { StitchToolClient, stitch as defaultStitch } from '@google/stitch-sdk';
 import type { Stitch } from '@google/stitch-sdk';
+import { resolveStitchSdkAuth } from '../../services/stitch/sdk-auth.js';
 import type { CommandStep } from '../../framework/CommandStep.js';
 import { runSteps } from '../../framework/StepRunner.js';
 import type { ToolCommandInput, ToolCommandResult, VirtualTool } from './spec.js';
@@ -22,13 +23,15 @@ export const deps = {
 };
 
 export class ToolCommandHandler {
-  private client: StitchToolClient;
+  private client?: StitchToolClient;
   private stitchInstance: Stitch;
   private tools: VirtualTool[];
   private steps: CommandStep<ToolContext>[];
+  private readonly clientFactory: () => Promise<StitchToolClient>;
 
   constructor(client?: StitchToolClient, tools?: VirtualTool[], stitchInstance?: Stitch) {
-    this.client = client || new StitchToolClient();
+    this.client = client;
+    this.clientFactory = async () => this.client || new StitchToolClient(await resolveStitchSdkAuth());
     this.stitchInstance = stitchInstance || defaultStitch;
     this.tools = tools || defaultVirtualTools;
     this.steps = [
@@ -41,9 +44,10 @@ export class ToolCommandHandler {
   }
 
   async execute(input: ToolCommandInput): Promise<ToolCommandResult> {
+    const client = await this.clientFactory();
     const context: ToolContext = {
       input,
-      client: this.client,
+      client,
       stitch: this.stitchInstance,
       virtualTools: this.tools,
     };
@@ -53,7 +57,7 @@ export class ToolCommandHandler {
         onAfterStep: (_step, _result, ctx) => ctx.result !== undefined,
         });
     } finally {
-        await this.client.close();
+        await client.close();
     }
 
     return context.result ?? { success: false, error: 'No step produced a result' };
