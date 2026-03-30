@@ -1,15 +1,18 @@
 import { type ViewSpec, type ViewInput, type ViewResult } from './spec.js';
 import { StitchToolClient } from '@google/stitch-sdk';
+import { resolveStitchSdkAuth } from '../stitch/sdk-auth.js';
 
 export class ViewHandler implements ViewSpec {
-  constructor(private readonly client = new StitchToolClient()) {}
+  constructor(private readonly clientFactory = async () => new StitchToolClient(await resolveStitchSdkAuth())) {}
 
   async execute(input: ViewInput): Promise<ViewResult> {
+    const client = await this.clientFactory();
+
     try {
       let data: any;
 
       if (input.projects) {
-        data = await this.client.callTool('list_projects', {});
+        data = await client.callTool('list_projects', {});
       } else if (input.name) {
         // Parse the resource name to determine the correct tool call
         // Format: "projects/{id}" or "projects/{id}/screens/{screenId}"
@@ -17,12 +20,12 @@ export class ViewHandler implements ViewSpec {
         const screenMatch = input.name.match(/^projects\/([^/]+)\/screens\/([^/]+)$/);
 
         if (screenMatch) {
-          data = await this.client.callTool('get_screen', {
+          data = await client.callTool('get_screen', {
             projectId: screenMatch[1],
             screenId: screenMatch[2]
           });
         } else if (projectMatch) {
-          data = await this.client.callTool('get_project', {
+          data = await client.callTool('get_project', {
             name: `projects/${projectMatch[1]}`
           });
         } else {
@@ -31,7 +34,7 @@ export class ViewHandler implements ViewSpec {
       } else if (input.sourceScreen) {
         const screenMatch = input.sourceScreen.match(/^projects\/([^/]+)\/screens\/([^/]+)$/);
         if (screenMatch) {
-            data = await this.client.callTool('get_screen', {
+            data = await client.callTool('get_screen', {
                 projectId: screenMatch[1],
                 screenId: screenMatch[2]
             });
@@ -39,12 +42,12 @@ export class ViewHandler implements ViewSpec {
             throw new Error(`Invalid sourceScreen format: ${input.sourceScreen}`);
         }
       } else if (input.project && input.screen) {
-        data = await this.client.callTool('get_screen', {
+        data = await client.callTool('get_screen', {
           projectId: input.project,
           screenId: input.screen
         });
       } else if (input.project) {
-        data = await this.client.callTool('get_project', {
+        data = await client.callTool('get_project', {
           name: `projects/${input.project}`
         });
       } else {
@@ -109,7 +112,7 @@ export class ViewHandler implements ViewSpec {
     } finally {
         // Ensure we close the client connection
         try {
-            await this.client.close();
+            await client.close();
         } catch {}
     }
   }

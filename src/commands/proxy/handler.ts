@@ -1,6 +1,7 @@
 import { StitchProxy } from '@google/stitch-sdk';
 import type { StitchProxy as StitchProxyType } from '@google/stitch-sdk';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { resolveStitchSdkAuth } from '../../services/stitch/sdk-auth.js';
 
 interface ProxyCommandInput {
   port?: number;
@@ -14,11 +15,11 @@ interface ProxyCommandResult {
 }
 
 export class ProxyCommandHandler {
-  private createProxy: (opts: { apiKey?: string }) => StitchProxyType;
+  private createProxy: (opts: { apiKey?: string; accessToken?: string; projectId?: string }) => StitchProxyType;
   private createTransport: () => StdioServerTransport;
 
   constructor(deps?: {
-    createProxy?: (opts: { apiKey?: string }) => StitchProxyType;
+    createProxy?: (opts: { apiKey?: string; accessToken?: string; projectId?: string }) => StitchProxyType;
     createTransport?: () => StdioServerTransport;
   }) {
     this.createProxy = deps?.createProxy ?? ((opts) => new StitchProxy(opts));
@@ -27,9 +28,8 @@ export class ProxyCommandHandler {
 
   async execute(input: ProxyCommandInput): Promise<ProxyCommandResult> {
     try {
-      const proxy = this.createProxy({
-        apiKey: process.env.STITCH_API_KEY,
-      });
+      const auth = await resolveStitchSdkAuth();
+      const proxy = this.createProxy(auth);
       const transport = this.createTransport();
       await proxy.start(transport);
       return { success: true, data: { status: 'running' } };
